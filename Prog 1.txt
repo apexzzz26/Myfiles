@@ -1,0 +1,79 @@
+SERVER
+#include<stdio.h>
+#include<unistd.h>
+#include<fcntl.h>
+#include<string.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int sfd, cfd, fd, n;
+    char fname[50], buffer[100];
+    struct sockaddr_in server;
+
+    sfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(8080);
+    server.sin_addr.s_addr = INADDR_ANY;
+
+    bind(sfd, (struct sockaddr*)&server, sizeof(server));
+
+    listen(sfd, 5);
+
+    printf("Waiting for client...\n");
+
+    cfd = accept(sfd, NULL, NULL);
+
+    recv(cfd, fname, sizeof(fname), 0);
+
+    fd = open(fname, O_RDONLY);
+
+    while((n = read(fd, buffer, sizeof(buffer))) > 0)
+    {
+        send(cfd, buffer, n, 0);
+    }
+
+    close(fd);
+    close(cfd);
+    close(sfd);
+
+    return 0;
+}
+
+CLIENT
+#include<stdio.h>
+#include<unistd.h>
+#include<string.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int sock, n;
+    char fname[50], buffer[100];
+    struct sockaddr_in server;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &server.sin_addr);
+
+    connect(sock, (struct sockaddr*)&server, sizeof(server));
+
+    printf("Enter file name: ");
+    scanf("%s", fname);
+
+    send(sock, fname, sizeof(fname), 0);
+
+    while((n = recv(sock, buffer, sizeof(buffer), 0)) > 0)
+    {
+        write(1, buffer, n);   // print file contents
+    }
+
+    close(sock);
+
+    return 0;
+}

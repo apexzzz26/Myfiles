@@ -1,0 +1,83 @@
+SERVER
+#include<stdio.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include<string.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int sfd,cfd;
+    char buf[100];
+    struct sockaddr_in serv;
+
+    sfd=socket(AF_INET,SOCK_STREAM,0);
+
+    serv.sin_family=AF_INET;
+    serv.sin_addr.s_addr=INADDR_ANY;
+    serv.sin_port=htons(15001);
+
+    bind(sfd,(struct sockaddr*)&serv,sizeof(serv));
+    listen(sfd,5);
+
+    printf("Server Waiting...\n");
+
+    while(1)
+    {
+        cfd=accept(sfd,NULL,NULL);
+
+        if(fork()==0)
+        {
+            while(recv(cfd,buf,sizeof(buf),0)>0)
+            {
+                printf("Client: %s",buf);
+
+                printf("Server: ");
+                fgets(buf,sizeof(buf),stdin);
+
+                send(cfd,buf,strlen(buf)+1,0);
+            }
+            close(cfd);
+            exit(0);
+        }
+
+        close(cfd);
+    }
+}
+
+
+CLIENT
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int sock;
+    char buf[100];
+    struct sockaddr_in serv;
+
+    sock=socket(AF_INET,SOCK_STREAM,0);
+
+    serv.sin_family=AF_INET;
+    serv.sin_port=htons(15001);
+    inet_pton(AF_INET,"127.0.0.1",&serv.sin_addr);
+
+    connect(sock,(struct sockaddr*)&serv,sizeof(serv));
+
+    while(1)
+    {
+        printf("Client: ");
+        fgets(buf,sizeof(buf),stdin);
+
+        send(sock,buf,strlen(buf)+1,0);
+
+        recv(sock,buf,sizeof(buf),0);
+
+        printf("Server: %s",buf);
+    }
+}

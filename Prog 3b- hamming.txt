@@ -1,0 +1,52 @@
+#include <stdio.h>
+
+int main()
+{
+    int data[8], recv[8];
+    int c0, c1, c2, error, i;
+
+    // Enter 4 data bits
+    printf("Enter 4 data bits: ");
+    scanf("%d %d %d %d", &data[3], &data[5], &data[6], &data[7]);
+
+    // Calculate parity bits
+    data[1] = (data[3] + data[5] + data[7]) % 2; // P1
+    data[2] = (data[3] + data[6] + data[7]) % 2; // P2
+    data[4] = (data[5] + data[6] + data[7]) % 2; // P4
+
+    // Display encoded data
+    printf("Encoded Data: ");
+    for(i = 1; i <= 7; i++)
+        printf("%d", data[i]);
+
+    // Enter received data
+    printf("\nEnter received 7-bit code: ");
+    for(i = 1; i <= 7; i++)
+        scanf("%d", &recv[i]);
+
+    // Check parity
+    c0 = (recv[1] + recv[3] + recv[5] + recv[7]) % 2;
+    c1 = (recv[2] + recv[3] + recv[6] + recv[7]) % 2;
+    c2 = (recv[4] + recv[5] + recv[6] + recv[7]) % 2;
+
+    // Find error position
+    error = c2 * 4 + c1 * 2 + c0;
+
+    if(error == 0)
+    {
+        printf("No Error Detected");
+    }
+    else
+    {
+        printf("Error at Position %d", error);
+
+        // Correct error
+        recv[error] = !recv[error];
+
+        printf("\nCorrected Data: ");
+        for(i = 1; i <= 7; i++)
+            printf("%d", recv[i]);
+    }
+
+    return 0;
+}

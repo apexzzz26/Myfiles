@@ -1,0 +1,32 @@
+#include<stdio.h>
+
+long power(long a,long b,long n)
+{
+    long result=1;
+    int i;
+
+    for(i=0;i<b;i++)
+        result=(result*a)%n;
+
+    return result;
+}
+
+int main()
+{
+    long p=3,q=11;
+    long n=p*q;
+    long e=3,d=7;
+
+    long msg,cipher,plain;
+
+    printf("Enter message (number less than 33): ");
+    scanf("%ld",&msg);
+
+    cipher=power(msg,e,n);
+    printf("Encrypted Message = %ld\n",cipher);
+
+    plain=power(cipher,d,n);
+    printf("Decrypted Message = %ld\n",plain);
+
+    return 0;
+}

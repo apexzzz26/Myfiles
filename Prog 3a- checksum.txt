@@ -1,0 +1,63 @@
+#include <stdio.h>
+
+int main()
+{
+    unsigned short data[5];
+    unsigned int sum = 0;
+    unsigned short checksum;
+    int i;
+
+    // Sender Side
+    printf("Sender Side\n");
+    printf("Enter 5 hexadecimal numbers:\n");
+
+    for(i = 0; i < 5; i++)
+    {
+        scanf("%hx", &data[i]);
+        sum += data[i];
+    }
+
+    // Handle carry (wrap-around carry)
+    while(sum > 0xFFFF)
+    {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // Calculate checksum
+    checksum = ~sum;
+
+    printf("Checksum = %X\n", checksum);
+
+    // Receiver Side
+    sum = 0;
+
+    printf("\nReceiver Side\n");
+    printf("Enter the same 5 numbers:\n");
+
+    for(i = 0; i < 5; i++)
+    {
+        scanf("%hx", &data[i]);
+        sum += data[i];
+    }
+
+    printf("Enter received checksum:\n");
+    scanf("%hx", &checksum);
+
+    sum += checksum;
+
+    // Handle carry again
+    while(sum > 0xFFFF)
+    {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // Verify checksum
+    sum = ~sum;
+
+    if(sum == 0)
+        printf("No Error\n");
+    else
+        printf("Error Detected\n");
+
+    return 0;
+}

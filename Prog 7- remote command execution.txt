@@ -1,0 +1,75 @@
+SERVER 
+#include<stdio.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int s, ns;
+    char cmd[100];
+
+    struct sockaddr_in server;
+
+    s = socket(AF_INET, SOCK_STREAM, 0);
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(15001);
+    server.sin_addr.s_addr = INADDR_ANY;
+
+    bind(s, (struct sockaddr*)&server, sizeof(server));
+
+    listen(s, 5);
+
+    printf("Server Waiting...\n");
+
+    ns = accept(s, NULL, NULL);
+
+    printf("Client Connected\n");
+
+    while(1)
+    {
+        recv(ns, cmd, sizeof(cmd), 0);
+
+        printf("Executing: %s", cmd);
+
+        system(cmd);
+    }
+
+    close(ns);
+    close(s);
+}
+
+CLIENT
+#include<stdio.h>
+#include<string.h>
+#include<unistd.h>
+#include<arpa/inet.h>
+#include<sys/socket.h>
+
+int main()
+{
+    int s;
+    char cmd[100];
+
+    struct sockaddr_in server;
+
+    s = socket(AF_INET, SOCK_STREAM, 0);
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(15001);
+    inet_pton(AF_INET, "127.0.0.1", &server.sin_addr);
+
+    connect(s, (struct sockaddr*)&server, sizeof(server));
+
+    while(1)
+    {
+        printf("Enter command: ");
+        fgets(cmd, 100, stdin);
+
+        send(s, cmd, strlen(cmd)+1, 0);
+    }
+
+    close(s);
+}

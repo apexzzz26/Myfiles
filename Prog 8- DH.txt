@@ -1,0 +1,30 @@
+#include<stdio.h>
+#include<math.h>
+
+int main()
+{
+    long long p,g,a,b,A,B,keyA,keyB;
+
+    printf("Enter p and g: ");
+    scanf("%lld%lld",&p,&g);
+
+    printf("Enter Alice private key: ");
+    scanf("%lld",&a);
+
+    printf("Enter Bob private key: ");
+    scanf("%lld",&b);
+
+    A = (long long)pow(g,a) % p;
+    B = (long long)pow(g,b) % p;
+
+    printf("\nAlice Public Key = %lld",A);
+    printf("\nBob Public Key = %lld",B);
+
+    keyA = (long long)pow(B,a) % p;
+    keyB = (long long)pow(A,b) % p;
+
+    printf("\nShared Key at Alice = %lld",keyA);
+    printf("\nShared Key at Bob = %lld",keyB);
+
+    return 0;
+}
