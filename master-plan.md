@@ -12,14 +12,14 @@
 
 ## Project summary
 
-An on-prem AI agent that takes a **codebase folder + past log files + a design doc**, then — when an operator pastes an **error + log lines** — returns:
+An AI agent that takes a **codebase folder + past log files + a design doc**, then — when an operator pastes an **error + log lines** — returns:
 1. **Root cause** (why/how it happened)
 2. **Ranked suspect files** with line ranges and reasons
 3. **Log representation** (template, where to grep, what surrounding lines mean)
 
-Every claim is grounded in real `file:line` or real log lines. Runs entirely on local hardware. No cloud APIs.
+Every claim is grounded in real `file:line` or real log lines. Uses the Samsung Gauss Chat API for LLM inference.
 
-**Stack:** Python 3.11 · FastAPI · SQLite · Ollama (`qwen3:8b`) · `all-MiniLM-L6-v2` · Chroma · BM25 · tree-sitter · Drain3 · React + TypeScript + Tailwind · Docker Compose
+**Stack:** Python 3.11 · FastAPI · SQLite · Samsung Gauss Chat API · `all-MiniLM-L6-v2` · Chroma · BM25 · tree-sitter · Drain3 · React + TypeScript + Tailwind
 
 ---
 
@@ -29,12 +29,11 @@ Every claim is grounded in real `file:line` or real log lines. Runs entirely on 
 Phase 0 — Foundations
   0.1  Hardware & tool check
   0.2  Python environment & deps
-  0.3  Docker infrastructure
-  0.4  Local model verification
-  0.5  Project folder scaffold
-  0.6  Pydantic data contracts
-  0.7  Sample data
-  0.8  Test infrastructure
+  0.3  Samsung Gauss API verification
+  0.4  Project folder scaffold
+  0.5  Pydantic data contracts
+  0.6  Sample data
+  0.7  Test infrastructure
 
 Phase 1 — Indexing
   1.1  Code Indexer (tree-sitter chunks + call-site map)
@@ -84,8 +83,8 @@ Phase 5 — Stretch (post-internship)
 
 ## Global constraints (every phase inherits these)
 
-- No external network calls — all models local.
-- Models fixed: LLM = `qwen3:8b` (Ollama), embeddings = `sentence-transformers/all-MiniLM-L6-v2`.
+- LLM calls go through the Samsung Gauss Chat API (`POST /openapi/chat/v1/messages`). Keep your credentials in `.env` — never commit them.
+- Embeddings model fixed: `sentence-transformers/all-MiniLM-L6-v2` (runs locally).
 - MiniLM hard cap ≈ 256 tokens — keep every indexed chunk ≤ ~80 lines.
 - All cited `file:line` and log lines must pass the Grounding Checker before surfacing in the UI.
 - LangChain = components only (no AgentExecutor, no LangGraph, no long LCEL pipes). Pin all `langchain-*` versions in `requirements.txt`.
@@ -98,9 +97,9 @@ Phase 5 — Stretch (post-internship)
 
 # PHASE 0 — Foundations
 
-**Goal:** Working local environment — Python venv, Docker (Ollama + Chroma), model pulls and answers, project folder created, all Pydantic schemas defined, sample data in place, pytest running green.
+**Goal:** Working local environment — Python venv, Samsung Gauss API reachable and responding, project folder created, all Pydantic schemas defined, sample data in place, pytest running green.
 
-**When done:** `ollama run qwen3:8b "ok"` → prints `ok`; `pytest backend/tests/test_models.py` → PASS.
+**When done:** Samsung Gauss API call returns a valid response; `pytest backend/tests/test_models.py` → PASS.
 
 ---
 
@@ -108,50 +107,37 @@ Phase 5 — Stretch (post-internship)
 
 **Goal:** Confirm the machine can run this project before writing any code.
 
-**Estimated time:** 15 min
+**Estimated time:** 10 min
 
 ### Steps
 
-1. **Check available RAM.** Qwen3:8b (4-bit quant) needs ~6 GB free RAM to load.
-   ```bash
-   # Linux/Mac
-   free -h
-   # Windows (PowerShell)
-   Get-CimInstance Win32_OperatingSystem | Select-Object FreePhysicalMemory
-   ```
-   Expected: at least 6 GB free. If not, ask your mentor for access to a GPU box *now*.
-
-2. **Check Python version.**
+1. **Check Python version.**
    ```bash
    python --version
    ```
    Expected: `Python 3.11.x` or higher. If lower, install Python 3.11 from python.org.
 
-3. **Check Docker is installed and running.**
-   ```bash
-   docker --version && docker ps
-   ```
-   Expected: version printed + empty container list (no error).
-
-4. **Check Node.**
+2. **Check Node.**
    ```bash
    node --version && npm --version
    ```
    Expected: Node 18+ and npm 9+. Install from nodejs.org if missing.
 
-5. **Check Git.**
+3. **Check Git.**
    ```bash
    git --version
    ```
    Expected: any recent version.
 
-6. **Check Ollama is installed.**
-   ```bash
-   ollama --version
-   ```
-   If missing: download from [ollama.com](https://ollama.com) and install.
+4. **Confirm you have Samsung Gauss API credentials.** You need all four values:
+   - `GAUSS_CLIENT_KEY` — the `x-generative-ai-client` header value
+   - `GAUSS_API_TOKEN` — the `x-openapi-token` value (include `Bearer ` prefix)
+   - `GAUSS_ENDPOINT_URL` — the base endpoint URL from your Open API application
+   - `GAUSS_USER_EMAIL` — your portal email for the `x-generative-ai-user-email` header
 
-**Verify:** All six checks pass with no errors.
+   If you don't have these yet, apply for the Open API access before continuing.
+
+**Verify:** All checks pass with no errors.
 
 ---
 
@@ -191,7 +177,6 @@ Phase 5 — Stretch (post-internship)
    python-dotenv
    langchain
    langchain-core
-   langchain-ollama
    langchain-huggingface
    langchain-chroma
    langchain-community
@@ -201,6 +186,8 @@ Phase 5 — Stretch (post-internship)
    drain3
    tree-sitter
    tree-sitter-language-pack
+   requests
+   sseclient-py
    pytest
    httpx
    ```
@@ -214,14 +201,17 @@ Phase 5 — Stretch (post-internship)
 
 5. **Create `.env.example`.**
    ```
-   OLLAMA_URL=http://localhost:11434
-   LLM_MODEL=qwen3:8b
+   GAUSS_ENDPOINT_URL=https://your-endpoint-url-here
+   GAUSS_CLIENT_KEY=eyJXXX...
+   GAUSS_API_TOKEN=Bearer eyJXXX...
+   GAUSS_USER_EMAIL=you@samsung.com
+   GAUSS_MODEL_ID=your-text-model-id-here
    EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
    CHROMA_DIR=./chroma_store
    TOP_K=6
    ```
 
-**Verify:** `python -c "import langchain_ollama, chromadb, drain3, tree_sitter"` → no errors.
+**Verify:** `python -c "import langchain_huggingface, chromadb, drain3, tree_sitter, requests, sseclient"` → no errors.
 
 **Commit:**
 ```bash
@@ -231,96 +221,65 @@ git commit -m "chore: pinned requirements and env template"
 
 ---
 
-## Phase 0.3 — Docker infrastructure
+## Phase 0.3 — Samsung Gauss API verification
 
-**Goal:** Ollama and Chroma running in Docker; accessible on their standard ports.
+**Goal:** Confirm your credentials work and you can retrieve a model ID for use in all subsequent phases.
 
-**Estimated time:** 15 min
+**Estimated time:** 10 min
 
 ### Steps
 
-1. **Create `docker-compose.yml`** in the project root:
-   ```yaml
-   services:
-     ollama:
-       image: ollama/ollama:latest
-       ports:
-         - "11434:11434"
-       volumes:
-         - ollama_data:/root/.ollama
-
-     chroma:
-       image: chromadb/chroma:latest
-       ports:
-         - "8000:8000"
-       volumes:
-         - chroma_data:/data
-
-   volumes:
-     ollama_data: {}
-     chroma_data: {}
-   ```
-
-2. **Start the services.**
+1. **Copy `.env.example` to `.env`** and fill in your real credentials:
    ```bash
-   docker compose up -d
+   cp .env.example .env
+   # edit .env with your actual GAUSS_CLIENT_KEY, GAUSS_API_TOKEN, GAUSS_ENDPOINT_URL, GAUSS_USER_EMAIL
    ```
-   Expected: two containers start (`ollama`, `chroma`).
 
-3. **Verify Chroma is reachable.**
-   ```bash
-   curl http://localhost:8000/api/v1/heartbeat
+2. **Fetch available models** to confirm auth works and get your model ID:
+   ```python
+   # run once from your venv
+   import os, requests
+   from dotenv import load_dotenv
+   load_dotenv()
+
+   headers = {
+       "x-generative-ai-client": os.environ["GAUSS_CLIENT_KEY"],
+       "x-openapi-token": os.environ["GAUSS_API_TOKEN"],
+       "x-generative-ai-user-email": os.environ["GAUSS_USER_EMAIL"],
+   }
+   resp = requests.get(f"{os.environ['GAUSS_ENDPOINT_URL']}/openapi/chat/v1/models", headers=headers)
+   print(resp.json())
    ```
-   Expected: `{"nanosecond heartbeat": <number>}`.
+   Expected: a list of model objects each with a `modelId` field. Copy the `modelId` of the text model you want to use and set it as `GAUSS_MODEL_ID` in your `.env`.
 
-**Verify:** Both containers up (`docker compose ps`); Chroma heartbeat responds.
+3. **Send a test message (non-streaming)** to confirm end-to-end:
+   ```python
+   body = {
+       "modelIds": [os.environ["GAUSS_MODEL_ID"]],
+       "contents": ["Reply with only the single word: ok"],
+       "isStream": False,
+       "llmConfig": {"max_new_tokens": 10, "temperature": 0.1}
+   }
+   resp = requests.post(
+       f"{os.environ['GAUSS_ENDPOINT_URL']}/openapi/chat/v1/messages",
+       headers=headers, json=body
+   )
+   data = resp.json()
+   print(data["content"], data["status"])
+   ```
+   Expected: prints `ok SUCCESS`.
+
+**Verify:** Both API calls succeed and the test message returns `status: SUCCESS`.
 
 **Commit:**
 ```bash
-git add docker-compose.yml
-git commit -m "chore: docker-compose for ollama and chroma"
+git add .env.example
+git commit -m "chore: Samsung Gauss API verified, env template updated"
 ```
 
 ---
 
-## Phase 0.4 — Local model verification
-
-**Goal:** Qwen3:8b downloaded and responding; MiniLM embedding model downloaded.
-
-**Estimated time:** 10–40 min (mostly download time)
-
-### Steps
-
-1. **Pull Qwen3:8b into Ollama** (inside the Ollama container or via the host CLI if Ollama runs on-host):
-   ```bash
-   ollama pull qwen3:8b
-   ```
-   Expected: progress bars, then `success`. Model size ≈ 5–6 GB.
-
-2. **Verify the model answers.**
-   ```bash
-   ollama run qwen3:8b "Reply with only the single word: ok"
-   ```
-   Expected: prints `ok` (within ~30 sec on CPU, ~5 sec on GPU).
-
-3. **Pre-download the MiniLM embedding model** so it's cached before the first `/ingest` call (avoids a surprise download mid-demo):
-   ```python
-   # run once from your venv
-   python -c "
-   from sentence_transformers import SentenceTransformer
-   SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-   print('downloaded')
-   "
-   ```
-   Expected: prints `downloaded`.
-
-**Verify:** Both commands succeed. Note actual response time on your hardware — this is your latency baseline.
-
-**Commit:** No code change; note latency in a comment in `.env.example` for reference.
-
----
-
-## Phase 0.5 — Project folder scaffold
+## Phase 0.4 — Project folder scaffold
 
 **Goal:** Full folder structure created (empty files are fine); ready for code.
 
@@ -398,8 +357,11 @@ git commit -m "chore: docker-compose for ollama and chroma"
    from pydantic_settings import BaseSettings
 
    class Settings(BaseSettings):
-       OLLAMA_URL: str = "http://localhost:11434"
-       LLM_MODEL: str = "qwen3:8b"
+       GAUSS_ENDPOINT_URL: str
+       GAUSS_CLIENT_KEY: str
+       GAUSS_API_TOKEN: str
+       GAUSS_USER_EMAIL: str = ""
+       GAUSS_MODEL_ID: str
        EMBED_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
        CHROMA_DIR: str = "./chroma_store"
        TOP_K: int = 6
@@ -410,7 +372,7 @@ git commit -m "chore: docker-compose for ollama and chroma"
    settings = Settings()
    ```
 
-**Verify:** `python -c "from app.config import settings; print(settings.LLM_MODEL)"` (run from `backend/`) → prints `qwen3:8b`.
+**Verify:** `python -c "from app.config import settings; print(settings.GAUSS_MODEL_ID)"` (run from `backend/`) → prints your model ID.
 
 **Commit:**
 ```bash
@@ -420,7 +382,7 @@ git commit -m "chore: project folder scaffold and config"
 
 ---
 
-## Phase 0.6 — Pydantic data contracts
+## Phase 0.5 — Pydantic data contracts
 
 **Goal:** All shared data schemas defined in one file. These are the spine — every module imports from here.
 
@@ -543,7 +505,7 @@ git commit -m "feat: Pydantic data contracts — all shared schemas"
 
 ---
 
-## Phase 0.7 — Sample data
+## Phase 0.6 — Sample data
 
 **Goal:** A tiny but realistic codebase + log + design doc to drive all tests. Every test references these files.
 
@@ -616,7 +578,7 @@ git commit -m "chore: sample codebase, logs, and design doc for tests"
 
 ---
 
-## Phase 0.8 — Test infrastructure
+## Phase 0.7 — Test infrastructure
 
 **Goal:** `conftest.py` with shared fixtures so every test file can get a built index with one import.
 
@@ -666,10 +628,9 @@ git commit -m "chore: pytest config and shared fixtures"
 ### Phase 0 complete ✓
 
 **Milestone check:**
-- [ ] `ollama run qwen3:8b "ok"` → prints `ok`
-- [ ] `docker compose ps` → both containers up
+- [ ] Samsung Gauss API test message returns `status: SUCCESS`
 - [ ] `cd backend && pytest -v` → 2 tests pass
-- [ ] Folder structure matches the tree in Phase 0.5
+- [ ] Folder structure matches the tree in Phase 0.4
 - [ ] `sample_data/` has all three files
 
 ---
@@ -1219,18 +1180,15 @@ git commit -m "feat: FastAPI app with POST /ingest and /health"
 
 2. **Manual full-stack check:**
    ```bash
-   # 1. start docker services
-   docker compose up -d
-
-   # 2. start api
+   # 1. start api
    uvicorn app.main:app --port 8080 &
 
-   # 3. ingest sample data
+   # 2. ingest sample data
    curl -s -X POST http://localhost:8080/ingest \
      -H "Content-Type: application/json" \
      -d '{"repo":"../sample_data/repo","logs":"../sample_data/logs/app.log","doc":"../sample_data/design.md"}' | python -m json.tool
 
-   # 4. confirm health
+   # 3. confirm health
    curl http://localhost:8080/health
    ```
    Expected: health shows `"indexed": true`.
@@ -1621,9 +1579,9 @@ git commit -m "feat: grounded prompt builder for Qwen3"
 
 ---
 
-## Phase 2.4 — Analyzer (ChatOllama + structured output)
+## Phase 2.4 — Analyzer (Samsung Gauss API + structured output)
 
-**Goal:** Add the live LLM call to `analyzer.py` using `ChatOllama.with_structured_output(IncidentReport)`.
+**Goal:** Add the live LLM call to `analyzer.py` using the Samsung Gauss Chat API, parsing the response into a validated `IncidentReport`.
 
 **Files modified:** `backend/app/analysis/analyzer.py` (add `analyze` function)
 
@@ -1632,25 +1590,72 @@ git commit -m "feat: grounded prompt builder for Qwen3"
 1. **Add `analyze()` to `analyzer.py`:**
    ```python
    # Add these imports at the top of analyzer.py
-   from langchain_ollama import ChatOllama
+   import json
+   import re
+   import time
+   import requests
    from app.config import settings
    from app.models import IncidentReport
 
-   # Add this function below build_prompt:
+   def _gauss_headers() -> dict:
+       return {
+           "x-generative-ai-client": settings.GAUSS_CLIENT_KEY,
+           "x-openapi-token": settings.GAUSS_API_TOKEN,
+           "x-generative-ai-user-email": settings.GAUSS_USER_EMAIL,
+           "Content-Type": "application/json",
+       }
+
+   def _call_gauss(prompt_text: str) -> str:
+       """
+       Call the Samsung Gauss Chat API (non-streaming) and return the content string.
+       Raises RuntimeError on non-SUCCESS status.
+       """
+       body = {
+           "modelIds": [settings.GAUSS_MODEL_ID],
+           "contents": [prompt_text],
+           "isStream": False,
+           "llmConfig": {
+               "max_new_tokens": 1024,
+               "temperature": 0.1,
+               "top_p": 0.9,
+               "repetition_penalty": 1.04,
+           },
+       }
+       resp = requests.post(
+           f"{settings.GAUSS_ENDPOINT_URL}/openapi/chat/v1/messages",
+           headers=_gauss_headers(),
+           json=body,
+           timeout=120,
+       )
+       resp.raise_for_status()
+       data = resp.json()
+       if data.get("status") != "SUCCESS":
+           raise RuntimeError(f"Gauss API error: {data.get('status')} / {data.get('responseCode')}")
+       return data["content"]
+
+   def _extract_json(text: str) -> dict:
+       """Strip markdown fences and parse JSON from the model's response."""
+       # Remove ```json ... ``` fences if present
+       clean = re.sub(r"```(?:json)?", "", text).strip().strip("`").strip()
+       return json.loads(clean)
+
    def analyze(sig: ErrorSignature, hits: dict[str, list[Document]]) -> IncidentReport:
        """
-       Call Qwen3 with the grounded prompt and return a validated IncidentReport.
-       Raises ValidationError if the model returns non-conforming JSON after retries.
+       Call Samsung Gauss with the grounded prompt and return a validated IncidentReport.
+       Retries up to 3 times on JSON parse or validation errors.
        """
-       llm = ChatOllama(
-           model=settings.LLM_MODEL,
-           base_url=settings.OLLAMA_URL,
-           temperature=0,        # deterministic output
-           format="json",        # force JSON mode at the Ollama level
-       )
-       structured_llm = llm.with_structured_output(IncidentReport)
        prompt_text = build_prompt(sig, hits)
-       return structured_llm.invoke(prompt_text)
+       last_exc = None
+       for attempt in range(3):
+           try:
+               raw = _call_gauss(prompt_text)
+               parsed = _extract_json(raw)
+               return IncidentReport(**parsed)
+           except Exception as e:
+               last_exc = e
+               if attempt < 2:
+                   time.sleep(2)
+       raise RuntimeError(f"Gauss analyzer failed after 3 attempts: {last_exc}") from last_exc
    ```
 
 2. **Add a live integration test at the bottom of `test_analyzer.py`:**
@@ -1674,17 +1679,17 @@ git commit -m "feat: grounded prompt builder for Qwen3"
        assert report.log_representation.where_to_grep
    ```
 
-3. **Run the integration test (needs Ollama up):**
+3. **Run the integration test (needs valid Gauss credentials in `.env`):**
    ```bash
    pytest tests/test_analyzer.py -v -m integration
    ```
-   Expected: PASS — takes 10–60 sec depending on hardware.
-   > If you get a `ValidationError`: the model returned invalid JSON. Fix: pass `method="json_mode"` as an extra kwarg to `with_structured_output`, or add a retry wrapper.
+   Expected: PASS — takes a few seconds for the API round-trip.
+   > If you get a `RuntimeError` with `FILTER_INVALID`: the content filter blocked the request. Rephrase the system prompt to be clearly operational/technical. If JSON parse fails, check that `build_prompt` explicitly asks for a raw JSON object (no markdown fences).
 
 **Commit:**
 ```bash
 git add backend/app/analysis/analyzer.py backend/tests/test_analyzer.py
-git commit -m "feat: Qwen3 analyzer with ChatOllama structured output"
+git commit -m "feat: Samsung Gauss API analyzer with JSON parsing and retry"
 ```
 
 ---
@@ -2804,23 +2809,7 @@ git commit -m "feat: PII and credential redaction before embedding and LLM"
    )}
    ```
 
-3. **Model JSON retry** — in `analyzer.py`, wrap the LLM call:
-   ```python
-   import time
-
-   def analyze(sig: ErrorSignature, hits: dict) -> IncidentReport:
-       llm = ChatOllama(model=settings.LLM_MODEL, base_url=settings.OLLAMA_URL,
-                        temperature=0, format="json")
-       structured = llm.with_structured_output(IncidentReport)
-       prompt = build_prompt(sig, hits)
-       for attempt in range(3):
-           try:
-               return structured.invoke(prompt)
-           except Exception:
-               if attempt == 2:
-                   raise
-               time.sleep(1)
-   ```
+3. **Model JSON retry** — already built into `analyze()` in Phase 2.4 with 3 retries and a 2-second back-off. No further changes needed here.
 
 **Commit:**
 ```bash
@@ -2861,78 +2850,56 @@ git commit -am "perf: embeddings singleton + Chroma persistence between restarts
 
 ---
 
-## Phase 4.6 — Docker Compose full packaging
+## Phase 4.6 — Full packaging (process-based)
 
-**Goal:** One `docker compose up` starts api + web + ollama + chroma.
+**Goal:** One script starts api + web; Chroma runs as a local process. No Docker required.
 
 ### Steps
 
-1. **Create `backend/Dockerfile`:**
-   ```dockerfile
-   FROM python:3.11-slim
-   WORKDIR /app
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY . .
-   CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
-   ```
-
-2. **Create `frontend/Dockerfile`:**
-   ```dockerfile
-   FROM node:18-alpine AS build
-   WORKDIR /app
-   COPY package*.json ./
-   RUN npm ci
-   COPY . .
-   RUN npm run build
-
-   FROM nginx:alpine
-   COPY --from=build /app/dist /usr/share/nginx/html
-   EXPOSE 80
-   ```
-
-3. **Update `docker-compose.yml`:**
-   ```yaml
-   services:
-     ollama:
-       image: ollama/ollama:latest
-       ports: ["11434:11434"]
-       volumes: ["ollama_data:/root/.ollama"]
-
-     chroma:
-       image: chromadb/chroma:latest
-       ports: ["8000:8000"]
-       volumes: ["chroma_data:/data"]
-
-     api:
-       build: ./backend
-       ports: ["8080:8080"]
-       environment:
-         - OLLAMA_URL=http://ollama:11434
-         - CHROMA_DIR=/data/chroma
-       volumes: ["./sample_data:/sample_data:ro", "chroma_data:/data/chroma"]
-       depends_on: [ollama, chroma]
-
-     web:
-       build: ./frontend
-       ports: ["3000:80"]
-       depends_on: [api]
-
-   volumes:
-     ollama_data: {}
-     chroma_data: {}
-   ```
-
-4. **Verify:**
+1. **Install Chroma as a local server** (already in requirements via `chromadb`). Add a startup convenience script `start.sh` at the project root:
    ```bash
-   docker compose up --build
+   #!/usr/bin/env bash
+   set -e
+
+   echo "Starting Chroma..."
+   chroma run --path ./chroma_store &
+   CHROMA_PID=$!
+
+   echo "Starting API..."
+   cd backend
+   uvicorn app.main:app --host 0.0.0.0 --port 8080 &
+   API_PID=$!
+   cd ..
+
+   echo "Starting frontend..."
+   cd frontend
+   npm run preview -- --port 3000 &
+   WEB_PID=$!
+   cd ..
+
+   echo "All services started. Press Ctrl+C to stop."
+   trap "kill $CHROMA_PID $API_PID $WEB_PID 2>/dev/null" EXIT
+   wait
+   ```
+   ```bash
+   chmod +x start.sh
+   ```
+
+2. **Build the frontend for production:**
+   ```bash
+   cd frontend && npm run build
+   ```
+
+3. **Verify:**
+   ```bash
+   ./start.sh
    # open http://localhost:3000 — full app should load
    ```
 
 **Commit:**
 ```bash
-git add backend/Dockerfile frontend/Dockerfile docker-compose.yml
-git commit -m "feat: full Docker Compose packaging — one command bring-up"
+git add start.sh
+git commit -m "feat: start.sh — one-command bring-up without Docker"
 ```
 
 ---
@@ -2945,8 +2912,8 @@ git commit -m "feat: full Docker Compose packaging — one command bring-up"
 
 1. **Create `README.md`** covering:
    - One-sentence description
-   - Prerequisites (Docker, Ollama)
-   - Setup: `git clone` → `docker compose up` → `ollama pull qwen3:8b`
+   - Prerequisites (Python 3.11, Node 18+, Samsung Gauss API credentials)
+   - Setup: `git clone` → `pip install -r requirements.txt` → copy `.env.example` to `.env` and fill in credentials → `npm install` in `frontend/` → `./start.sh`
    - Usage: call `/ingest` with paths, then `/analyze` with an error
    - The WOW: click a log line → see its source
    - Eval: how to run `eval/run_eval.py`
@@ -2958,7 +2925,6 @@ git commit -m "feat: full Docker Compose packaging — one command bring-up"
    3. "The agent identified `apply_discount` in `buggy_app.py:8` as the culprit — with the reason and confidence."
    4. "Watch this — I click the log line…" → source call-site appears inline (WOW moment)
    5. "Here's the eval — top-3 hit rate across 15 past incidents is X%. This is what it can do as-is. Next: bounded multi-step agent for multi-hop bugs."
-
 **Commit:**
 ```bash
 git add README.md
@@ -2972,8 +2938,8 @@ git tag v1.0
 
 ### Checklist
 
-- [ ] `docker compose up` from a clean checkout — everything starts, no errors
-- [ ] Ingest the sample data — response within 120 sec (first embed is slow)
+- [ ] `./start.sh` from a clean checkout — everything starts, no errors
+- [ ] Ingest the sample data — response within 30 sec
 - [ ] Analyze the sample error — report appears with suspect files
 - [ ] Click a log line — WOW works
 - [ ] Run `python eval/run_eval.py` — prints top-k and latency numbers
@@ -3026,10 +2992,9 @@ These are "where it goes next" — describe them in the demo even if not built.
 
 | Action | Command |
 |---|---|
-| Start infrastructure | `docker compose up -d` |
+| Start all services | `./start.sh` |
 | Start API (dev) | `cd backend && uvicorn app.main:app --reload --port 8080` |
 | Start frontend (dev) | `cd frontend && npm run dev` |
-| Pull model | `ollama pull qwen3:8b` |
 | Run unit tests | `cd backend && pytest -v` |
 | Run integration tests | `cd backend && pytest -v -m integration` |
 | Run eval | `cd backend && python eval/run_eval.py <repo> <logs> <doc>` |
